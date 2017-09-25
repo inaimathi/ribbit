@@ -4,9 +4,9 @@
 (defconstant +size+ 4)
 
 ;; Basics and internals
-;; (defun make-vec (&rest elems)
-;;   (make-array `(,+size+) :initial-contents (or elems (loop repeat +size+ collect 0))))
-;; (defstruct ribbit (size-table (make-vec)) (depth 0) (vec (make-vec)))
+(defun make-vec (&rest elems)
+  (make-array `(,+size+) :initial-contents (or elems (loop repeat +size+ collect 0))))
+(defstruct ribbit (size-table nil) (depth 0) (vec #()))
 
 (defun take-across (n vecs)
   (let ((ct n)
@@ -33,17 +33,60 @@
 		 next))))
 
 ;; Literal ribbit notation
-(defun ribbit (&rest elems)
-  (let ((rb (list elems)))
-    (loop for next = (repartition +size+ rb)
+(defun full-level? (ribbit)
+  (= +size+ (length (typecase ribbit
+		      (ribbit (ribbit-vec ribbit))
+		      (t ribbit)))))
+
+(defun full? (ribbit)
+  (and (full-level? ribbit)
+       (or (vectorp ribbit)
+	   (zerop (ribbit-depth ribbit))
+	   (every #'full-level? (ribbit-vec ribbit)))))
+
+(defun mk-ribbit (vec)
+  (let* ((depth (if (ribbit-p (aref vec 0))
+		    (+ 1 (ribbit-depth (aref vec 0)))
+		    0))
+	 (size-table (unless (or (zerop depth) (and (full-level? vec) (every #'full-level? vec)))
+		       (coerce
+			(let ((s 0))
+			  (loop for e across vec
+			     do (incf s (len e)) collect s))
+			'vector))))
+    (make-ribbit :depth depth :vec vec :size-table size-table)))
+
+(defun vecs->ribbit (vs)
+  (let ((rb vs))
+    (loop for next = (mapcar #'mk-ribbit
+			     (repartition +size+ rb))
        if (not (cdr next)) return (first next)
-       else if (>= +size+ (length next)) return (coerce next 'vector)
+       else if (>= +size+ (length next)) return (mk-ribbit (coerce next 'vector))
        else do (setf rb (list (coerce next 'vector))))))
+
+(defun ribbit (&rest elems)
+  (vecs->ribbit (list elems)))
 
 ;; External interface
 ;; (these should probably just be hooked into native operations where possible. In particular index and concatenate)
-(defun len (rb) :todo)
+(defun len (rb)
+  (cond ((vectorp rb) (length rb))
+	((zerop (ribbit-depth rb))
+	 (length (ribbit-vec rb)))
+	((null (ribbit-size-table rb))
+	 (expt +size+ (+ 1 (ribbit-depth rb))))
+	(t (let ((szs (ribbit-size-table rb)))
+	     (aref szs (- (length szs) 1))))))
+
 (defun ix (rb index) :todo)
-(defun cat (&rest rbs) :todo)
+
+(defun cat (&rest rbs)
+  (let ((rs rbs)
+	(zeros nil))
+    (loop while rs for next = (pop rs)
+       if (zerop (ribbit-depth next)) do (push next zeros)
+       else do (loop for v across (ribbit-vec next) do (push v rs)))
+    (vecs->ribbit (repartition +size+ (mapcar #'ribbit-vec (reverse zeros))))))
+
 (defun split (rb index) :todo)
 (defun insert-at (rb index val) :todo)
