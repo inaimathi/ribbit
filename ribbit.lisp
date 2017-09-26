@@ -16,14 +16,26 @@
        for v = (typecase (first vs)
 		 (ribbit (ribbit-vec (first vs)))
 		 (t (first vs)))
-       do (cond ((> (length v) ct)
-		 (push (subseq v 0 ct) head)
-		 (setf tail (cons (subseq v ct) (rest vs))
-		       ct 0))
+       do (cond ((and (null head)
+		      (or (= ct (length v))
+			  (= ct (+ 1 (length v)))))
+		 (push (first vs) head)
+		 (setf ct 0
+		       tail (rest vs)))
+		((> (length v) ct)
+		    (push (subseq v 0 ct) head)
+		    (setf tail (cons (subseq v ct) (rest vs))
+			  ct 0))
 		(t (push v head)
 		   (decf ct (length v))))
        finally (unless tail (setf tail vs)))
-    (values (apply #'concatenate 'vector (reverse head)) tail)))
+    (if (cdr head)
+	(values (apply #'concatenate 'vector (reverse head)) tail)
+	(let ((v (first head)))
+	  (values (if (or (ribbit-p v) (vectorp v))
+		      v
+		      (coerce v 'vector))
+		  tail)))))
 
 (defun repartition (ct vecs)
   (let ((rest vecs))
@@ -31,6 +43,15 @@
        collect (multiple-value-bind (next rst) (take-across ct rest)
 		 (setf rest rst)
 		 next))))
+
+(defun ribbpartition (ct rbs)
+  (let ((rest rbs))
+    (loop while rest
+       collect (multiple-value-bind (next rst) (take-across ct rest)
+		 (setf rest rst)
+		 (if (ribbit-p next)
+		     next
+		     (mk-ribbit next))))))
 
 ;; Literal ribbit notation
 (defun full-level? (ribbit)
@@ -52,8 +73,7 @@
 
 (defun vecs->ribbit (vs)
   (let ((rb vs))
-    (loop for next = (mapcar #'mk-ribbit
-			     (repartition +size+ rb))
+    (loop for next = (ribbpartition +size+ rb)
        if (not (cdr next)) return (first next)
        else if (>= +size+ (length next)) return (mk-ribbit (coerce next 'vector))
        else do (setf rb (list (coerce next 'vector))))))
@@ -75,12 +95,13 @@
 (defun ix (rb index) :todo)
 
 (defun cat (&rest rbs)
-  (let ((rs rbs)
-  	(zeros nil))
-    (loop while rs for next = (pop rs)
-       if (zerop (ribbit-depth next)) do (push next zeros)
-       else do (loop for v across (ribbit-vec next) do (push v rs)))
-    (vecs->ribbit (repartition +size+ (mapcar #'ribbit-vec (reverse zeros))))))
+  (let ((zeros nil))
+    (labels ((find-zeros (rb)
+	       (if (zerop (ribbit-depth rb))
+		   (push rb zeros)
+		   (loop for v across (ribbit-vec rb) do (find-zeros v)))))
+      (mapc #'find-zeros rbs)
+      (vecs->ribbit (ribbpartition +size+ (reverse zeros))))))
 
 (defun split (rb index) :todo)
 (defun insert-at (rb index val) :todo)
