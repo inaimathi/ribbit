@@ -38,12 +38,6 @@
 		      (ribbit (ribbit-vec ribbit))
 		      (t ribbit)))))
 
-(defun full? (ribbit)
-  (and (full-level? ribbit)
-       (or (vectorp ribbit)
-	   (zerop (ribbit-depth ribbit))
-	   (every #'full-level? (ribbit-vec ribbit)))))
-
 (defun mk-ribbit (vec)
   (let* ((depth (if (ribbit-p (aref vec 0))
 		    (+ 1 (ribbit-depth (aref vec 0)))
@@ -82,7 +76,7 @@
 
 (defun cat (&rest rbs)
   (let ((rs rbs)
-	(zeros nil))
+  	(zeros nil))
     (loop while rs for next = (pop rs)
        if (zerop (ribbit-depth next)) do (push next zeros)
        else do (loop for v across (ribbit-vec next) do (push v rs)))
