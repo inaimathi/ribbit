@@ -1,5 +1,4 @@
 ;;;; package.lisp
-
 (defpackage #:ribbit
   (:use #:cl)
   (:export
