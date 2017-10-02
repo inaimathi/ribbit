@@ -1,6 +1,17 @@
 ;;;; ribbit.lisp
 (in-package #:ribbit)
 
+(defun test-things (cat-fn)
+  (list
+   (let ((r (ribbit 1 2 3 4)))
+     (eq r (aref (ribbit-vec (funcall cat-fn r (ribbit 1 2))) 0)))
+   (let ((r (ribbit 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)))
+     (eq r (aref (ribbit-vec (funcall cat-fn r (ribbit 1 2 3 4))) 0)))
+   (let ((r (ribbit 1))
+	 (r2 (smartish-cat (ribbit 1 2 3 4 5 6 7) (ribbit 8 9 10 11 12 13 14))))
+     (eq (aref (ribbit-vec r2) 2)
+	 (aref (ribbit-vec (funcall cat-fn r r2)) 2)))))
+
 (defconstant +size+ 4)
 
 ;; Basics and internals
@@ -136,8 +147,8 @@
 	   (let ((lv (max-reusable-level a)))
 	     (if lv
 		 (loop for r on (prune-to lv a)
-		    if (reusable? (first r)) collect (first r) into reusables
-		    else do (return (apply
+		    when (reusable? (first r)) collect (first r) into reusables
+		    finally (return (apply
 				     #'ribbit
 				     (append
 				      reusables
