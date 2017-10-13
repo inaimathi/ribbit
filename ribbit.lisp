@@ -1,133 +1,125 @@
 ;;;; ribbit.lisp
 (in-package #:ribbit)
 
-(defun test-things (cat-fn)
+(defun test-things ()
   (list
    (let ((r (ribbit 1 2 3 4)))
-     (eq r (aref (ribbit-vec (funcall cat-fn r (ribbit 1 2))) 0)))
+     (eq r (aref (ribbit-vec (cat r (ribbit 1 2))) 0)))
    (let ((r (ribbit 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)))
-     (eq r (aref (ribbit-vec (funcall cat-fn r (ribbit 1 2 3 4))) 0)))
+     (eq r (aref (ribbit-vec (cat r (ribbit 1 2 3 4))) 0)))
    (let ((r (ribbit 1))
-	 (r2 (smartish-cat (ribbit 1 2 3 4 5 6 7) (ribbit 8 9 10 11 12 13 14))))
+	 (r2 (cat (ribbit 1 2 3 4 5 6 7) (ribbit 8 9 10 11 12 13 14))))
      (eq (aref (ribbit-vec r2) 2)
-	 (aref (ribbit-vec (funcall cat-fn r r2)) 2)))))
+	 (aref (ribbit-vec (cat r r2)) 2)))))
 
-(defconstant +size+ 4)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;; Basics and literal notation
+(defparameter *m* 4)
+(defparameter *n* (- *m* 1))
 
-;; Basics and internals
 (defstruct ribbit (size-table nil) (depth 0) (vec #()))
 
-(defun take-across (n vecs)
-  (let ((ct n)
-	(head nil)
-	(tail nil))
-    (loop for vs on vecs while (> ct 0)
-       for v = (typecase (first vs)
-		 (ribbit (ribbit-vec (first vs)))
-		 (t (first vs)))
-       do (cond ((> (length v) ct)
-		 (push (subseq v 0 ct) head)
-		 (setf tail (cons (subseq v ct) (rest vs))
-		       ct 0))
-		(t (push v head)
-		   (decf ct (length v))))
-       finally (unless tail (setf tail vs)))
-    (values
-     (let ((v (first head)))
-       (cond ((and (not (cdr head))
-		   (or (ribbit-p v) (vectorp v)))
-	      v)
-	     ((not (cdr head))
-	      (coerce v 'vector))
-	     (t
-	      (apply #'concatenate 'vector (reverse head)))))
-     tail)))
+(defun take-across (depth rbs)
+  (if (not (cdr rbs))
+      (values (first rbs) nil)
+      (let ((ct *m*)
+	    (head nil)
+	    (tail nil))
+	(loop for rs on rbs while (> ct 1)
+	   for r = (first rs)
+	   for v = (ribbit-vec r)
+	   do (cond ((> (length v) ct)
+		     (push (subseq v 0 ct) head)
+		     (setf tail (cons (mk-ribbit depth (subseq v ct)) (rest rs))
+			   ct 0))
+		    (t (push v head)
+		       (decf ct (length v))))
+	   finally (unless tail (setf tail rs)))
+	(values
+	 (mk-ribbit depth (apply #'concatenate 'vector (reverse head)))
+	 tail))))
 
-(defun ribbpartition (ct rbs)
+(defun repartition (depth rbs)
   (let ((rest rbs))
-    (loop while rest
-       collect (multiple-value-bind (next rst) (take-across ct rest)
-		 (setf rest rst)
-		 (if (ribbit-p next)
-		     next
-		     (mk-ribbit next))))))
+    (loop while rest for r = (pop rest)
+       if (reusable? r) collect r
+       else collect (multiple-value-bind (next rst) (take-across depth (cons r rest))
+		      (setf rest rst)
+		      next))))
 
-;; Literal ribbit notation
-(defun full-level? (ribbit)
-  (= +size+ (length (ribbit-vec ribbit))))
+(defun full-level? (ribbit) (= *m* (length (ribbit-vec ribbit))))
 
-(defun mk-ribbit (vec)
-  (let* ((depth (if (ribbit-p (aref vec 0))
-		    (+ 1 (ribbit-depth (aref vec 0)))
-		    0))
-	 (size-table (unless (or (zerop depth) (and (= +size+ (length vec)) (every #'full-level? vec)))
-		       (coerce
-			(let ((s 0))
-			  (loop for e across vec
-			     do (incf s (len e)) collect s))
-			'vector))))
-    (make-ribbit :depth depth :vec vec :size-table size-table)))
+(defun reusable? (ribbit)
+  (let* ((d (ribbit-depth ribbit))
+	 (ct (length (ribbit-vec ribbit)))
+	 (reusable-lv (or (= *m* ct) (= *n* ct))))
+    (or (and (zerop d) reusable-lv)
+	(let ((max (expt *m* (+ 1 d)))
+	      (l (len ribbit)))
+	  (or (= l max) (= l (- max 1))))
+	(and reusable-lv
+	     (every #'reusable? (ribbit-vec ribbit))))))
 
-(defun vecs->ribbit (vs)
-  (let ((rb vs))
-    (loop for next = (ribbpartition +size+ rb)
-       if (not (cdr next)) return (first next)
-       else if (>= +size+ (length next)) return (mk-ribbit (coerce next 'vector))
-       else do (setf rb (list (coerce next 'vector))))))
+(defun reusable? (ribbit)
+  (let* ((d (ribbit-depth ribbit))
+	 (ct (length (ribbit-vec ribbit)))
+	 (reusable-lv (or (= *m* ct) (= *n* ct))))
+    (or (and (zerop d) reusable-lv)
+	(let ((max (expt *m* (+ 1 d)))
+	      (l (len ribbit)))
+	  (or (= l max) (= l (- max 1))))
+	(and reusable-lv
+	     (every #'reusable? (ribbit-vec ribbit))))))
+
+(defun compute-size-table (depth vec)
+  (unless (or (zerop depth) (and (= *m* (length vec)) (every #'full-level? vec)))
+    (coerce
+     (let ((s 0))
+       (loop for e across vec
+	  do (incf s (len e)) collect s))
+     'vector)))
+
+(defun mk-ribbit (depth vec)
+  (make-ribbit :size-table (compute-size-table depth vec) :depth depth :vec vec))
+
+(defun ribbit-level (depth elems)
+  (let ((es elems))
+    (loop while es
+       collect (mk-ribbit
+		depth (coerce
+		       (loop repeat *m* while es
+			  for e = (pop es) collect e)
+		       'vector)))))
+
+(defun ribbit-from (depth elems)
+  (let ((rbs (ribbit-level depth elems))
+	(d depth))
+    (loop while (cdr rbs)
+       do (setf rbs (ribbit-level (incf d) rbs)))
+    (first rbs)))
 
 (defun ribbit (&rest elems)
   (if elems
-      (vecs->ribbit (list elems))
+      (ribbit-from 0 elems)
       (make-ribbit)))
 
-;; External interface
-;; (these should probably just be hooked into native operations where possible. In particular index and concatenate)
-(defun len (rb)
-  (cond ((vectorp rb) (length rb))
-	((zerop (ribbit-depth rb))
-	 (length (ribbit-vec rb)))
-	((null (ribbit-size-table rb))
-	 (expt +size+ (+ 1 (ribbit-depth rb))))
-	(t (let ((szs (ribbit-size-table rb)))
-	     (aref szs (- (length szs) 1))))))
-
-(defun ix (rb index) :todo)
-(defun split (rb index) :todo)
-(defun insert-at (rb index val) :todo)
-
-;;;;; Smart CAT stuff
-(defun stupid-cat (a b)
-  (let ((zeros nil))
-    (labels ((find-zeros (rb)
-	       (if (zerop (ribbit-depth rb))
-		   (push rb zeros)
-		   (loop for v across (ribbit-vec rb) do (find-zeros v)))))
-      (mapc #'find-zeros (list a b))
-      (vecs->ribbit (ribbpartition +size+ (reverse zeros))))))
-
-(defun reusable? (ribbit)
-  (let ((l (len ribbit))
-	(max (expt +size+ (+ 1 (ribbit-depth ribbit)))))
-    (or (= l max)
-	(= l (- max 1))
-	(and (= l (- +size+ 1))
-	     (every #'reusable? (ribbit-vec ribbit))))))
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;; cat and associated plumbing
 (defun raise-to (depth ribbit)
   (if (>= (ribbit-depth ribbit) depth)
       ribbit
-      (let ((r ribbit))
-	(loop until (= (ribbit-depth r) depth)
-	   do (setf r (mk-ribbit (vector r))))
+      (let ((r ribbit)
+	    (d (ribbit-depth ribbit)))
+	(loop until (= d depth)
+	   do (setf r (mk-ribbit (incf d) (vector r))))
 	r)))
 
-(defun prune-to (level ribbit)
-  (if (= level (ribbit-depth ribbit))
+(defun prune-to (depth ribbit)
+  (if (= depth (ribbit-depth ribbit))
       (list ribbit)
       (let ((rbs (list ribbit)))
-	(loop until (= level (ribbit-depth (first rbs)))
-	   do (setf rbs (loop for r in rbs
-			   append (coerce (ribbit-vec ribbit) 'list))))
+	(loop until (= depth (ribbit-depth (first rbs)))
+	   do (setf rbs (loop for r in rbs append (coerce (ribbit-vec ribbit) 'list))))
 	rbs)))
 
 (defun max-reusable-level (ribbit)
@@ -137,21 +129,34 @@
 	      for d = (max-reusable-level r)
 	      if d do (return d)))))
 
-(defun smartish-cat (a b)
-  (let ((d (ribbit-depth a)))
+(defun cat (a b)
+  (let* ((d (ribbit-depth a))
+	 (max-d (or (max-reusable-level a) 0)))
     (cond ((and (reusable? a) (>= d (ribbit-depth b)))
-	   (mk-ribbit (vector a (raise-to d b))))
+	   (mk-ribbit (+ d 1) (vector a (raise-to d b))))
 	  ((reusable? a)
-	   (apply #'ribbit a (prune-to d b)))
-	  ((not (zerop d))
-	   (let ((lv (max-reusable-level a)))
-	     (if lv
-		 (loop for r on (prune-to lv a)
-		    when (reusable? (first r)) collect (first r) into reusables
-		    finally (return (apply
-				     #'ribbit
-				     (append
-				      reusables
-				      (ribbpartition +size+ (append r (prune-to lv (raise-to lv b))))))))
-		 (stupid-cat a b))))
-	  (t (stupid-cat a b)))))
+	   (ribbit-from (+ d 1) (cons a (prune-to d b))))
+	  (t
+	   (ribbit-from
+	    (+ max-d 1)
+	    (repartition
+	     max-d (append
+		    (prune-to max-d a)
+		    (prune-to max-d (raise-to max-d b)))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;; Other external methods
+(defun len (rb)
+  (cond ((zerop (ribbit-depth rb))
+	 (length (ribbit-vec rb)))
+	((null (ribbit-size-table rb))
+	 (expt *m* (+ 1 (ribbit-depth rb))))
+	(t (let ((szs (ribbit-size-table rb)))
+	     (aref szs (- (length szs) 1))))))
+
+(defun set! (rb ix val) :todo)
+(defun slice (rb &key from to) :todo)
+(defun insert-at (rb ix val) :todo)
+(defun split-at (rb ix) :todo)
+(defun ix (rb ix) :todo)
+(defun traverse (rb fn) :todo)
