@@ -49,16 +49,11 @@
 
 (defun full-level? (ribbit) (= *m* (length (ribbit-vec ribbit))))
 
-(defun reusable? (ribbit)
-  (let* ((d (ribbit-depth ribbit))
-	 (ct (length (ribbit-vec ribbit)))
-	 (reusable-lv (or (= *m* ct) (= *n* ct))))
-    (or (and (zerop d) reusable-lv)
-	(let ((max (expt *m* (+ 1 d)))
-	      (l (len ribbit)))
-	  (or (= l max) (= l (- max 1))))
-	(and reusable-lv
-	     (every #'reusable? (ribbit-vec ribbit))))))
+;; (cat (cat (ribbit 1 2 3 4 5 6 7 8 9 10 11 12) (cat (ribbit 1 2 3 4) (ribbit 1 2)))
+;;      (cat (cat (ribbit-from 2 (loop repeat 3 collect (apply #'ribbit (loop repeat 16 for i from 0 collect i))))
+;; 	       (apply #'ribbit (loop repeat 64 collect -1)))
+;; 	  (cat (apply #'ribbit (loop repeat 16 for i from 0 collect i))
+;; 	       (cat (cat (ribbit 1 2 3) (ribbit 1 2 3 4)) (ribbit 1)))))
 
 (defun reusable? (ribbit)
   (let* ((d (ribbit-depth ribbit))
@@ -103,6 +98,15 @@
       (ribbit-from 0 elems)
       (make-ribbit)))
 
+;; (defmethod print-object ((r ribbit) s)
+;;   (let ((zeros (prune-to 0 r)))
+;;     (format s "(ribbit")
+;;     (loop for z in zeros do
+;; 	 (loop for o across (ribbit-vec z)
+;; 	    do (format s " ")
+;; 	    do (print-object o s)))
+;;     (format s ")")))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; cat and associated plumbing
 (defun raise-to (depth ribbit)
@@ -115,11 +119,13 @@
 	r)))
 
 (defun prune-to (depth ribbit)
-  (if (= depth (ribbit-depth ribbit))
+  (if (>= depth (ribbit-depth ribbit))
       (list ribbit)
-      (let ((rbs (list ribbit)))
-	(loop until (= depth (ribbit-depth (first rbs)))
-	   do (setf rbs (loop for r in rbs append (coerce (ribbit-vec ribbit) 'list))))
+      (let ((rbs (list ribbit))
+	    (d (ribbit-depth ribbit)))
+	(loop until (>= depth d)
+	   do (setf rbs (loop for r in rbs append (coerce (ribbit-vec r) 'list)))
+	   do (decf d))
 	rbs)))
 
 (defun max-reusable-level (ribbit)
